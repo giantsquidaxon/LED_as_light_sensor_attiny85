@@ -1,63 +1,86 @@
-#define ANODE_PIN 4
-#define CATHODE_PIN 5
-#define threshold
-
-#define LOGGING
+#define ANODE_PIN_A 3
+#define CATHODE_PIN_A 4
+#define ANODE_PIN_B 5
+#define CATHODE_PIN_B 6
+#define MONITOR 2
+#define LED_TIMEOUT 100000
+#define SAMPLES_TO_AVERAGE 5
 
 void setup() {
   // put your setup code here, to run once:
 #ifdef LOGGING
   Serial.begin(9600);
 #endif
-  DDRD |= 0b11000000;
-  PORTD &= 0b00001111;
-  PORTD |= 0b01000000;
 }
 
 inline void do_cycle() __attribute__((always_inline));
 void do_cycle(uint16_t duty) {
-  PORTD = 0b00010000;
+  PORTB = 1 << ANODE_PIN_A;
   for (int i = 0; i < duty; i++) {
     __asm__("nop\n\t");
   }
 
-  PORTD = 0b00000000;
+  PORTB = 0b00000000;
   for (int i = duty; i <= 4096; i++) {
     __asm__("nop\n\t");
   }
   return;
 }
 
+/** log a sample to be averaged. return true is a shadow has been detected **/
+bool log_sample(long int sample){
+  static long int previous_count = LED_TIMEOUT;
+  static long int current_count = 0;
+  static int n = 0;
 
-long int last_count = 2000000;
+  current_count += sample;
+  if (++n < SAMPLES_TO_AVERAGE){
+    return false;
+  }
+
+  current_count /= n;
+  long int t = previous_count + 2 * (previous_count / 20);
+  previous_count = current_count;
+  n = 0;
+  
+  return (current_count > t);
+  
+}
+  
 
 void loop() {
-  // put your main code here, to run repeatedly:
-  //DDRD |= 0b00110000;
-  // Set cathode to 1, anode to 0.
-  //PORTD &= 0b11001111;
-  //PORTD |= 0b00010000;
-  //delay(1000);
-
 
   // Charge LED capacitance
   // Set cathode pin to OUT
-  DDRD |= 0b00110000;
+#ifdef MONITOR
+  DDRB = 1 << ANODE_PIN_A | 1 << CATHODE_PIN_A | 1 << MONITOR;
+#else
+  DDRB = 1 << ANODE_PIN_A | 1 << CATHODE_PIN_A;
+#endif
   // Set cathode to 1, anode to 0.
-  PORTD &= 0b10001111;
-  PORTD |= 0b01100000;
+  PORTB = 1 << CATHODE_PIN_A;
   // Wait
   delay(10);
   // Set cathode pin to IN / HIGH Z
-  DDRD &= 0b11011111;
-  // Disable pullup
-  PORTD &= 0b11001111;
+  // Disable internal pullup
+#ifdef MONITOR
+  DDRB = 1 << ANODE_PIN_A | 1 << MONITOR;
+  PORTB = 1 << MONITOR;
+#else
+  DDRB = 1 << ANODE_PIN_A;
+  PORTB = 0x00;
+#endif
+
   // Read from cathode pin until 0
   long int count = 0;
-  while (PIND & 0b00100000) {
+  while (PINB & 1 << CATHODE_PIN_A && count < LED_TIMEOUT) {
     count++;
   }
-  PORTD &= 0b10111111;
+
+#ifdef MONITOR
+  PORTB = 0x00;
+#endif
+
 #ifdef LOGGING
   // Write count out to serial
   Serial.print(count);
@@ -65,9 +88,8 @@ void loop() {
 #endif
 
   // Flash if shadow
-  long int t = last_count + 3 * (last_count / 20);
-  if (count > t) {
-    DDRD |= 0b00110000;
+  if (log_sample(count)) {
+    DDRB = 1 << ANODE_PIN_A | 1 << CATHODE_PIN_A;
 
     for (uint16_t k = 0; k < 256; k++) {
       uint16_t duty = (k * k) >> 4 ;
@@ -81,7 +103,5 @@ void loop() {
       }
     }
     delay(2000);
-  }else{
-    last_count = count;
   }
 }
