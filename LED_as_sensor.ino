@@ -1,8 +1,8 @@
 #define ANODE_PIN_A 3
 #define CATHODE_PIN_A 4
-#define ANODE_PIN_B 5
-#define CATHODE_PIN_B 6
-#define MONITOR 2
+#define ANODE_PIN_B 1
+#define CATHODE_PIN_B 2
+#define MONITOR 0
 #define LED_TIMEOUT 100000
 #define SAMPLES_TO_AVERAGE 5
 
@@ -13,9 +13,10 @@ void setup() {
 #endif
 }
 
+/** Perform a single on off cycle with the specified duty cycle, between 0 and 4095. */
 inline void do_cycle() __attribute__((always_inline));
 void do_cycle(uint16_t duty) {
-  PORTB = 1 << ANODE_PIN_A;
+  PORTB = 1 << ANODE_PIN_A | 1 << ANODE_PIN_B;
   for (int i = 0; i < duty; i++) {
     __asm__("nop\n\t");
   }
@@ -28,13 +29,13 @@ void do_cycle(uint16_t duty) {
 }
 
 /** log a sample to be averaged. return true is a shadow has been detected **/
-bool log_sample(long int sample){
+bool log_sample(long int sample) {
   static long int previous_count = LED_TIMEOUT;
   static long int current_count = 0;
   static int n = 0;
 
   current_count += sample;
-  if (++n < SAMPLES_TO_AVERAGE){
+  if (++n < SAMPLES_TO_AVERAGE) {
     return false;
   }
 
@@ -42,11 +43,29 @@ bool log_sample(long int sample){
   long int t = previous_count + 2 * (previous_count / 20);
   previous_count = current_count;
   n = 0;
-  
+
   return (current_count > t);
-  
+
 }
-  
+
+/** Flash the bug's eyes */
+void eyeflash() {
+  DDRB =  1 << ANODE_PIN_A | 1 << CATHODE_PIN_A |
+          1 << ANODE_PIN_B | 1 << CATHODE_PIN_B;
+
+  for (uint16_t k = 0; k < 256; k++) {
+    uint16_t duty = (k * k) >> 4 ;
+    do_cycle(duty);
+  }
+
+  for (uint16_t k = 255; k != 0; k--) {
+    uint16_t duty = (k * k) >> 4 ;
+    for (int i = 0; i < 3; i++) {
+      do_cycle(duty);
+    }
+  }
+}
+
 
 void loop() {
 
@@ -89,19 +108,7 @@ void loop() {
 
   // Flash if shadow
   if (log_sample(count)) {
-    DDRB = 1 << ANODE_PIN_A | 1 << CATHODE_PIN_A;
-
-    for (uint16_t k = 0; k < 256; k++) {
-      uint16_t duty = (k * k) >> 4 ;
-      do_cycle(duty);
-    }
-
-    for (uint16_t k = 255; k != 0; k--) {
-      uint16_t duty = (k * k) >> 4 ;
-      for (int i = 0; i < 3; i++) {
-        do_cycle(duty);
-      }
-    }
+    eyeflash();
     delay(2000);
   }
 }
